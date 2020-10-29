@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+// Connection between actor and daemon
 type actorDaemonConnectorInstance struct {
 	daemonPrototype
 
@@ -12,7 +13,16 @@ type actorDaemonConnectorInstance struct {
 	to   Daemon
 }
 
-// Sync connector call
+func (d *actorDaemonConnectorInstance) AsActor() Actor {
+	return d
+}
+
+// Sync connector call. Send input to daemon and waiting for answer.
+// But it may have wrong answer in parallel execution
+func (d *actorDaemonConnectorInstance) Call(ctx context.Context, in interface{}) (out interface{}, err error) {
+	return d.AsActor().Call(ctx, in)
+}
+
 func (d *actorDaemonConnectorInstance) AsActorFn() ActorFn {
 	return func(ctx context.Context, in interface{}) (out interface{}, err error) {
 		var daemon Daemon = d
@@ -44,16 +54,6 @@ func (d *actorDaemonConnectorInstance) AsActorFn() ActorFn {
 			return out, nil
 		}
 	}
-}
-
-func (d *actorDaemonConnectorInstance) AsActor() Actor {
-	return d
-}
-
-// Sync connector call. Send input to daemon and waiting for answer.
-// But it may have wrong answer in parallel execution
-func (d *actorDaemonConnectorInstance) Call(ctx context.Context, in interface{}) (out interface{}, err error) {
-	return d.AsActor().Call(ctx, in)
 }
 
 func (d *actorDaemonConnectorInstance) Clone() Daemon {
@@ -150,136 +150,3 @@ func (d *actorDaemonConnectorInstance) AsActorDaemonConnector() ActorDaemonConne
 func (d *actorDaemonConnectorInstance) AsDaemon() Daemon {
 	return d
 }
-
-//func (c *actorDaemonConnectorInstance) AsActorDaemonConnector() ActorDaemonConnector {
-//	return c
-//}
-//
-//func (c *actorDaemonConnectorInstance) Call(ctx context.Context, in interface{}) (out interface{}, err error) {
-//	_, err = c.AsActor().Call(ctx, in)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	for {
-//		select {
-//		case <-ctx.Done():
-//			return nil, nil
-//		case err := <-c.toLaunched.Err():
-//			if err != nil {
-//				return nil, err
-//			}
-//		case toOut, ok := <-c.toLaunched.Out():
-//			if !ok {
-//				return nil, nil
-//			}
-//
-//			if toOut == nil {
-//				continue
-//			}
-//
-//			return toOut, nil
-//		}
-//	}
-//}
-//
-//func (c *actorDaemonConnectorInstance) Run(ctx context.Context) (LaunchedDaemon, error) {
-//	var err error
-//
-//	cDaemon := &(*c)
-//
-//	if err = cDaemon.launchDaemons(ctx); err != nil {
-//		return nil, fmt.Errorf("error launch daemons")
-//	}
-//
-//	daemon := cDaemon.AsDaemon()
-//	daemonInstance, ok := daemon.(*daemonPrototype)
-//	if !ok {
-//		return nil, fmt.Errorf("error cast daemon to *daemonPrototype")
-//	}
-//
-//	daemonInstance.out = c.toLaunched.out
-//	daemonInstance.err = c.toLaunched.err
-//
-//	daemonLaunched, err := daemonInstance.Run(ctx)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	return daemonLaunched, nil
-//}
-//
-//func (c *actorDaemonConnectorInstance) Stop() {
-//	if c.toLaunched != nil {
-//		if c.toLaunched.cancel != nil {
-//			c.toLaunched.cancel()
-//		}
-//		c.toLaunched.Wait()
-//
-//		close(c.toLaunched.in)
-//		c.toLaunched.in = nil
-//
-//		close(c.toLaunched.out)
-//		c.toLaunched.out = nil
-//
-//		close(c.toLaunched.err)
-//		c.toLaunched.err = nil
-//
-//		c.toLaunched = nil
-//	}
-//}
-//
-//func (c *actorDaemonConnectorInstance) AsActor() Actor {
-//	return c.AsActorFn().AsActor()
-//}
-//
-//func (c *actorDaemonConnectorInstance) AsDaemon() Daemon {
-//	return c.AsActorFn().AsDaemon()
-//}
-//
-//func (c *actorDaemonConnectorInstance) AsActorFn() ActorFn {
-//	return func(ctx context.Context, in interface{}) (out interface{}, err error) {
-//		if err := c.launchDaemons(ctx); err != nil {
-//			return nil, fmt.Errorf("error launch daemons: %w", err)
-//		}
-//
-//		if c.toLaunched == nil {
-//			return nil, fmt.Errorf("'to' daemon isn't launched")
-//		}
-//
-//		fromOut, err := c.From().Call(ctx, in)
-//		if err != nil {
-//			return nil, fmt.Errorf("from call error: %w", err)
-//		}
-//
-//		select {
-//		case <-ctx.Done():
-//			return nil, nil
-//		case err := <-c.toLaunched.Err():
-//			if err != nil {
-//				return nil, fmt.Errorf("actor 'to' error: %w", err)
-//			}
-//		case c.toLaunched.In() <- fromOut:
-//		}
-//
-//		return nil, nil
-//	}
-//}
-//
-//func (c *actorDaemonConnectorInstance) launchDaemons(ctx context.Context) error {
-//	var ok bool
-//
-//	if c.toLaunched == nil {
-//		toDaemon, err := c.To().AsActorFn().AsDaemon().Run(ctx)
-//		if err != nil {
-//			return err
-//		}
-//
-//		c.toLaunched, ok = toDaemon.(*daemonPrototype)
-//		if !ok {
-//			return fmt.Errorf("error cast toDaemon to *daemonPrototype")
-//		}
-//	}
-//
-//	return nil
-//}

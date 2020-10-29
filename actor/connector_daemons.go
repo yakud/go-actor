@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Connection between two actors
+// Connection between two daemons
 type daemonsConnectorInstance struct {
 	errChan chan error
 	from    Daemon

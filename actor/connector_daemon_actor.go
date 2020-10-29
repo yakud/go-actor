@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Connection between two actors
+// Connection between daemon and actor
 type daemonActorConnectorInstance struct {
 	daemonPrototype
 
