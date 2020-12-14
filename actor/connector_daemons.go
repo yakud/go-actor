@@ -5,11 +5,29 @@ import (
 	"fmt"
 )
 
-// Connection between two daemons
+// Connection between two actors
 type daemonsConnectorInstance struct {
 	errChan chan error
 	from    Daemon
 	to      Daemon
+}
+
+func (d *daemonsConnectorInstance) Close() {
+	d.from.Close()
+	d.to.Close()
+}
+
+func (d *daemonsConnectorInstance) ConnectActor(actor Actor) Daemon {
+	return NewDaemonActorConnector(d, actor)
+}
+
+func (d *daemonsConnectorInstance) ConnectDaemon(daemon Daemon) Daemon {
+	return NewDaemonsConnector(d, daemon)
+}
+
+func (d *daemonsConnectorInstance) DisableCloseChannelsOnStop(disabled bool) {
+	d.from.DisableCloseChannelsOnStop(disabled)
+	d.to.DisableCloseChannelsOnStop(disabled)
 }
 
 func (d *daemonsConnectorInstance) Clone() Daemon {
@@ -33,34 +51,46 @@ func (d *daemonsConnectorInstance) AsDaemonFn() DaemonFn {
 			return fmt.Errorf("already launched")
 		}
 
-		if in == nil {
-			in = make(chan interface{})
+		if d.from.In() == nil {
+			if in == nil {
+				in = make(chan interface{})
+			}
+			d.SetIn(in)
 		}
-		if out == nil {
-			out = make(chan interface{})
+
+		if d.to.Out() == nil {
+			if out == nil {
+				out = make(chan interface{})
+			}
+			d.SetOut(out)
 		}
+
 		if errors == nil {
 			errors = make(chan error)
 		}
-
-		d.SetIn(in)
-		d.SetOut(out)
 		d.SetErr(errors)
 
 		if d.from.Out() == nil {
 			d.from.SetOut(make(chan interface{}))
 		}
+
+		//d.from.SetOut(d.to.In())
 		d.to.SetIn(d.from.Out())
 
 		var err error
-		d.from, err = d.from.Run(ctx)
-		if err != nil {
-			return err
+
+		if !d.from.IsLaunched() {
+			d.from, err = d.from.Run(ctx)
+			if err != nil {
+				return err
+			}
 		}
 
-		d.to, err = d.to.Run(ctx)
-		if err != nil {
-			return err
+		if !d.to.IsLaunched() {
+			d.to, err = d.to.Run(ctx)
+			if err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -71,18 +101,21 @@ func (d *daemonsConnectorInstance) IsLaunched() bool {
 	return d.from.IsLaunched() && d.to.IsLaunched()
 }
 
-func (d *daemonsConnectorInstance) SetIn(c chan interface{}) {
+func (d *daemonsConnectorInstance) SetIn(c chan interface{}) Daemon {
 	d.from.SetIn(c)
+	return d
 }
 
-func (d *daemonsConnectorInstance) SetOut(c chan interface{}) {
+func (d *daemonsConnectorInstance) SetOut(c chan interface{}) Daemon {
 	d.to.SetOut(c)
+	return d
 }
 
-func (d *daemonsConnectorInstance) SetErr(errors chan error) {
+func (d *daemonsConnectorInstance) SetErr(errors chan error) Daemon {
 	d.errChan = errors
 	d.from.SetErr(d.errChan)
 	d.to.SetErr(d.errChan)
+	return d
 }
 
 func (d *daemonsConnectorInstance) In() chan interface{} {

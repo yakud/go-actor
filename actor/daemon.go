@@ -14,18 +14,23 @@ type Daemon interface {
 	Run(ctx context.Context) (Daemon, error)
 	AsDaemonFn() DaemonFn
 
-	SetIn(chan interface{})
-	SetOut(chan interface{})
-	SetErr(chan error)
+	SetIn(chan interface{}) Daemon
+	SetOut(chan interface{}) Daemon
+	SetErr(chan error) Daemon
 
 	In() chan interface{}
 	Out() chan interface{}
 	Err() chan error
 
+	DisableCloseChannelsOnStop(disabled bool)
+	Close()
 	Stop()
 	Wait()
 	IsLaunched() bool
 	Clone() Daemon
+
+	ConnectActor(Actor) Daemon
+	ConnectDaemon(Daemon) Daemon
 }
 
 type daemonPrototype struct {
@@ -36,6 +41,28 @@ type daemonPrototype struct {
 	cancel   context.CancelFunc
 	wg       *sync.WaitGroup
 	launched uint32
+
+	disabledCloseChannelsOnStop bool
+}
+
+func (d *daemonPrototype) Close() {
+	d.DisableCloseChannelsOnStop(true)
+	close(d.out)
+	close(d.in)
+	d.out = nil
+	d.in = nil
+}
+
+func (d *daemonPrototype) ConnectActor(actor Actor) Daemon {
+	return NewDaemonActorConnector(d, actor)
+}
+
+func (d *daemonPrototype) ConnectDaemon(daemon Daemon) Daemon {
+	return NewDaemonsConnector(d, daemon)
+}
+
+func (d *daemonPrototype) DisableCloseChannelsOnStop(disabled bool) {
+	d.disabledCloseChannelsOnStop = disabled
 }
 
 func (d *daemonPrototype) Clone() Daemon {
@@ -71,6 +98,11 @@ func (d *daemonPrototype) Run(ctx context.Context) (Daemon, error) {
 
 	dl.wg.Add(1)
 	go func() {
+		defer func() {
+			if !dl.disabledCloseChannelsOnStop && dl.out != nil {
+				close(dl.out)
+			}
+		}()
 		defer dl.wg.Done()
 
 		if !atomic.CompareAndSwapUint32(&dl.launched, 0, 1) {
@@ -99,16 +131,19 @@ func (d *daemonPrototype) Run(ctx context.Context) (Daemon, error) {
 	return dl, runErr
 }
 
-func (d *daemonPrototype) SetIn(in chan interface{}) {
+func (d *daemonPrototype) SetIn(in chan interface{}) Daemon {
 	d.in = in
+	return d
 }
 
-func (d *daemonPrototype) SetOut(out chan interface{}) {
+func (d *daemonPrototype) SetOut(out chan interface{}) Daemon {
 	d.out = out
+	return d
 }
 
-func (d *daemonPrototype) SetErr(err chan error) {
+func (d *daemonPrototype) SetErr(err chan error) Daemon {
 	d.err = err
+	return d
 }
 
 func (d *daemonPrototype) In() chan interface{} {

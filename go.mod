@@ -1,3 +1,3 @@
-module github.com/yakud/actor
+module github.com/yakud/go-actor
 
 go 1.14

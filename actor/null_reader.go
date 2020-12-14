@@ -8,9 +8,18 @@ func NullReaderDaemon() Daemon {
 			select {
 			case <-ctx.Done():
 				return nil
-			case <-in:
-			case <-out:
-			case <-err:
+			case _, ok := <-in:
+				if !ok {
+					return nil
+				}
+			case _, ok := <-out:
+				if !ok {
+					return nil
+				}
+			case _, ok := <-err:
+				if !ok {
+					return nil
+				}
 			}
 		}
 	})
