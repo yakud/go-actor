@@ -8,6 +8,14 @@ type actorsConnectorInstance struct {
 	to   Actor
 }
 
+func (c *actorsConnectorInstance) ConnectActor(actor Actor) Actor {
+	return NewActorsConnector(c, actor)
+}
+
+func (c *actorsConnectorInstance) ConnectDaemon(daemon Daemon) Daemon {
+	return NewActorDaemonConnector(c, daemon)
+}
+
 func (c *actorsConnectorInstance) AsActorFn() ActorFn {
 	return func(ctx context.Context, in interface{}) (out interface{}, err error) {
 		fromOut, err := c.From().Call(ctx, in)
@@ -16,12 +24,16 @@ func (c *actorsConnectorInstance) AsActorFn() ActorFn {
 		}
 
 		if fromOut == nil {
-			return nil, err
+			return nil, nil
 		}
 
 		toOut, err := c.To().Call(ctx, fromOut)
 		if err != nil {
 			return nil, err
+		}
+
+		if toOut == nil {
+			return nil, nil
 		}
 		return toOut, nil
 	}

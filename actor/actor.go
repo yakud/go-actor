@@ -11,9 +11,19 @@ type Actor interface {
 	AsActorFn() ActorFn
 	AsActor() Actor
 	Call(ctx context.Context, in interface{}) (out interface{}, err error)
+	ConnectActor(Actor) Actor
+	ConnectDaemon(Daemon) Daemon
 }
 
 type ActorFn func(ctx context.Context, in interface{}) (out interface{}, err error)
+
+func (fn ActorFn) ConnectActor(actor Actor) Actor {
+	return NewActorsConnector(fn, actor)
+}
+
+func (fn ActorFn) ConnectDaemon(daemon Daemon) Daemon {
+	return NewActorDaemonConnector(fn, daemon)
+}
 
 func (fn ActorFn) AsDaemon() Daemon {
 	return NewDaemon(fn.AsDaemonFn())
@@ -29,6 +39,7 @@ func (fn ActorFn) AsDaemonFn() DaemonFn {
 			select {
 			case <-ctx.Done():
 				return nil
+
 			case inData, ok := <-in:
 				if !ok {
 					return nil

@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"testing"
 )
@@ -53,9 +54,9 @@ func TestConnectorActorsPlusOne(t *testing.T) {
 		return inInt + 1, nil
 	})
 
-	intPlusTwo := NewActorsConnector(intPlusOne, intPlusOne)
-	intPlusThree := NewActorsConnector(intPlusTwo, intPlusOne)
-	intPlusSix := NewActorsConnector(intPlusThree, intPlusThree)
+	intPlusTwo := intPlusOne.ConnectActor(intPlusOne)
+	intPlusThree := intPlusTwo.ConnectActor(intPlusOne)
+	intPlusSix := intPlusTwo.ConnectActor(intPlusTwo).ConnectActor(intPlusTwo)
 
 	// 0 + 2
 	out, err := intPlusTwo.Call(nil, 0)
@@ -107,7 +108,8 @@ func TestDaemon(t *testing.T) {
 		return inInt + 1, nil
 	})
 
-	intPlusOneDaemon, err := intPlusOne.AsActorFn().AsDaemon().Run(context.Background())
+	intPlusOneAsDaemon := intPlusOne.AsActorFn().AsDaemon()
+	intPlusOneDaemon, err := intPlusOneAsDaemon.Run(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +138,7 @@ func TestDaemon(t *testing.T) {
 	intPlusOneDaemon.Stop()
 	intPlusOneDaemon.Wait()
 
-	intPlusOneDaemon, err = intPlusOneDaemon.Run(context.Background())
+	intPlusOneDaemon, err = intPlusOneAsDaemon.Run(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,6 +325,7 @@ func TestConnectorActorDaemonPlusOne(t *testing.T) {
 		log.Fatal("error launch daemon")
 	}
 
+	fmt.Println("start first try")
 	// first try
 	intPlusTwoDaemon.In() <- 0
 	select {
@@ -342,7 +345,9 @@ func TestConnectorActorDaemonPlusOne(t *testing.T) {
 			t.Fatalf("expected: %d actual: %d", 2, outInt)
 		}
 	}
+	fmt.Println("end first try ok")
 
+	fmt.Println("start second try")
 	//second try:
 	intPlusTwoDaemon.In() <- 0
 
@@ -363,6 +368,8 @@ func TestConnectorActorDaemonPlusOne(t *testing.T) {
 			t.Fatalf("expected: %d actual: %d", 2, outInt)
 		}
 	}
+
+	fmt.Println("end second try ok")
 
 	intPlusTwoDaemon.Stop()
 	intPlusTwoDaemon.Wait()
@@ -568,4 +575,210 @@ func TestConnectorDaemonActorActorActor(t *testing.T) {
 
 	intPlusFourDaemon.Stop()
 	intPlusFourDaemon.Wait()
+}
+
+func TestDaemonsConnectorWait(t *testing.T) {
+	b := 0
+
+	d, err := NewDaemonsConnector(
+		NewDaemon(func(ctx context.Context, in chan interface{}, out chan interface{}, err chan error) error {
+			out <- 1
+			out <- 2
+			out <- 3
+			return nil
+		}),
+
+		NewDaemonsConnector(
+			NewDaemon(func(ctx context.Context, in chan interface{}, out chan interface{}, err chan error) error {
+				for _b := range in {
+					out <- _b.(int) + 1
+				}
+				return nil
+			}),
+
+			NewDaemon(func(ctx context.Context, in chan interface{}, out chan interface{}, err chan error) error {
+				for _b := range in {
+					b = _b.(int)
+				}
+				return nil
+			}),
+		),
+	).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d.Wait()
+	if b != 4 {
+		t.Fatal("b is not 4")
+	}
+}
+
+func TestDaemonsConnectorWithActorFnWait(t *testing.T) {
+	b := 0
+
+	d, err := NewDaemonsConnector(
+		NewDaemon(func(ctx context.Context, in chan interface{}, out chan interface{}, err chan error) error {
+			out <- 1
+			out <- 2
+			out <- 3
+
+			return nil
+		}),
+
+		NewDaemonsConnector(
+			NewActor(func(ctx context.Context, in interface{}) (out interface{}, err error) {
+				return in.(int) + 1, nil
+			}).AsActorFn().AsDaemon(),
+
+			NewDaemon(func(ctx context.Context, in chan interface{}, out chan interface{}, err chan error) error {
+				for _b := range in {
+					b = _b.(int)
+				}
+				return nil
+			}),
+		),
+	).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d.Wait()
+	if b != 4 {
+		t.Fatal("b is not 4")
+	}
+}
+func TestDaemonsClusterSimple(t *testing.T) {
+	d, err := NewDaemonsCluster(
+		5,
+		NewActor(func(ctx context.Context, in interface{}) (out interface{}, err error) {
+			return in.(int) + 1, nil
+		}).AsActorFn().AsDaemon(),
+	).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d.In() <- 1
+	a, ok := <-d.Out()
+	if !ok {
+		t.Fatal("ERRRRRR")
+	}
+
+	if a != 2 {
+		t.Fatal("a is not 2")
+	}
+
+	d.In() <- 2
+	a, ok = <-d.Out()
+	if !ok {
+		t.Fatal("ERRRRRR")
+	}
+	if a != 3 {
+		t.Fatal("a is not 3")
+	}
+
+	d.Stop()
+	d.Wait()
+}
+
+func TestDaemonsMultipleCluster(t *testing.T) {
+	intPlusOneDaemon := NewActor(func(ctx context.Context, in interface{}) (out interface{}, err error) {
+		return in.(int) + 1, nil
+	}).AsActorFn().AsDaemon()
+
+	d, err := NewDaemonsCluster(5, intPlusOneDaemon).
+		ConnectDaemon(NewDaemonsCluster(5, intPlusOneDaemon)).
+		Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d.In() <- 1
+	a, ok := <-d.Out()
+	if !ok {
+		t.Fatal("ERRRRRR")
+	}
+
+	if a != 3 {
+		t.Fatal("a is not 3")
+	}
+
+	d.Stop()
+	d.Wait()
+}
+
+func TestDaemonsClusterWithGenerator(t *testing.T) {
+	d, err := NewDaemon(func(ctx context.Context, in chan interface{}, out chan interface{}, err chan error) error {
+		out <- 1
+		out <- 2
+		out <- 3
+		return nil
+	}).ConnectDaemon(
+		NewDaemonsCluster(
+			5,
+			NewActor(func(ctx context.Context, in interface{}) (out interface{}, err error) {
+				return in.(int) + 1, nil
+			}).AsActorFn().AsDaemon(),
+		),
+	).Run(context.Background())
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var maxA = 0
+	for a := range d.Out() {
+		if maxA < a.(int) {
+			maxA = a.(int)
+		}
+	}
+	if maxA != 4 {
+		t.Fatal("a is not 4")
+	}
+
+	d.Wait()
+}
+
+func TestBroadcast(t *testing.T) {
+	intPlusOneDaemon := NewActor(func(ctx context.Context, in interface{}) (out interface{}, err error) {
+		return in.(int) + 1, nil
+	}).AsActorFn().AsDaemon()
+
+	adderChan := make(chan interface{})
+	intPlusOneDaemon.SetOut(adderChan).DisableCloseChannelsOnStop(true)
+
+	adderDaemon, _ := NewDaemon(func(ctx context.Context, in chan interface{}, out chan interface{}, err chan error) error {
+		var sumState = 0
+
+		for inData := range in {
+			sumState += inData.(int)
+			out <- sumState
+		}
+
+		return nil
+	}).SetIn(adderChan).Run(context.Background())
+
+	broadcast, _ := NewBroadcastDaemon(
+		intPlusOneDaemon.ConnectDaemon(adderDaemon),
+		intPlusOneDaemon.ConnectDaemon(adderDaemon),
+		intPlusOneDaemon.ConnectDaemon(adderDaemon),
+	).Run(context.Background())
+
+	broadcast.In() <- 1
+
+	lastState := <-adderDaemon.Out()
+	lastState = <-adderDaemon.Out()
+	lastState = <-adderDaemon.Out()
+
+	if lastState != 6 {
+		t.Fatal("last state is not 4")
+	}
+
+	adderDaemon.Close()
+	adderDaemon.Stop()
+	adderDaemon.Wait()
+
+	broadcast.Stop()
+	broadcast.Wait()
 }
